@@ -459,11 +459,16 @@ function runOCR(dataUrl) {
       actionsBar.style.display = 'flex';
 
       // mapCard 从 display:none 变为 block 后，Leaflet 需要重新计算尺寸
-      setTimeout(function () {
-        map.invalidateSize();
-        var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
-        map.fitBounds(group.getBounds(), { padding: [40, 40] });
-      }, 50);
+      // 用 requestAnimationFrame + setTimeout 双重保证 DOM 已渲染
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          map.invalidateSize();
+          var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
+          map.fitBounds(group.getBounds(), { padding: [40, 40] });
+          // 再延迟一次确保缩放后瓦片正确加载
+          setTimeout(function () { map.invalidateSize(); }, 200);
+        });
+      });
 
       var failed = vals.length - ok.length;
       setStatus('成功定位 ' + ok.length + ' / ' + vals.length + ' 个地址。' + (failed ? ' ' + failed + ' 个未找到。' : ''), false);
