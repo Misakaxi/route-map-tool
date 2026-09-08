@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>线路地图生成器</title>
+<title>上传路由图自动识别地址，按顺序标点连线，一键导出图片</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -57,8 +57,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>线路地图生成器</h1>
-    <p>上传路由图自动识别地址，按顺序标点连线，一键导出图片</p>
+    <h1>上传路由图自动识别地址，按顺序标点连线，一键导出图片</h1>
   </header>
 
   <div class="card">
@@ -72,7 +71,7 @@
     <div class="ocr-status" id="ocrStatus"></div>
     <div class="hint">识别在浏览器本地完成，图片不会上传到任何服务器。</div>
 
-    <h2 style="margin-top:22px;">2. 确认地址顺序（从下到上）</h2>
+    <h2 style="margin-top:22px;">2. 确认地址</h2>
     <div class="addr-list" id="addrList"></div>
     <div class="addr-tools">
       <button class="btn-secondary" onclick="window.addAddrRow()">＋ 添加地址</button>
@@ -105,7 +104,7 @@
     <b>说明：</b>底图使用高德地图公开瓦片（免 key）；地址→坐标定位需要高德 Web 服务 Key（免费申请）。未填 Key 时地图仅显示底图。导出图片在浏览器本地生成。
   </div>
 
-  <footer>线路地图生成器 · 免费在线工具</footer>
+  <footer>上传路由图自动识别地址，按顺序标点连线，一键导出图片</footer>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
