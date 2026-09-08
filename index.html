@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="referrer" content="no-referrer">
 <title>上传路由图自动识别地址，按顺序标点连线，一键导出图片</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
@@ -12,18 +11,8 @@
   .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 60px; }
   header { text-align: center; padding: 28px 0 6px; }
   header h1 { font-size: 26px; letter-spacing: 1px; }
-  header p { color: #888; margin-top: 8px; font-size: 14px; }
   .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06); padding: 20px; margin-top: 20px; }
   .card h2 { font-size: 16px; margin-bottom: 12px; }
-  .hint { color: #999; font-size: 12px; margin-top: 6px; line-height: 1.7; }
-
-  .upload-box { border: 2px dashed #c9d4e5; border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
-  .upload-box:hover { border-color: #2f6fed; background: #f7faff; }
-  .upload-box .icon { font-size: 30px; }
-  .upload-box p { color: #666; font-size: 13px; margin-top: 6px; }
-  .upload-box input[type=file] { display: none; }
-  #ocrPreview { display: none; max-width: 260px; max-height: 180px; margin: 12px auto 0; border-radius: 8px; border: 1px solid #e3e6eb; }
-  .ocr-status { display: none; margin-top: 10px; font-size: 13px; color: #2e7d32; text-align: center; }
 
   .addr-list { margin-top: 14px; }
   .addr-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
@@ -62,17 +51,7 @@
   </header>
 
   <div class="card">
-    <h2>1. 上传路由图（自动识别地址）</h2>
-    <div class="upload-box" id="uploadBox">
-      <div class="icon">📷</div>
-      <p>点击上传图片，或拖拽图片到此处<br><span style="color:#aaa;font-size:12px">支持 png / jpg，识别后自动填入下方地址栏</span></p>
-      <input type="file" id="fileInput" accept="image/*">
-    </div>
-    <img id="ocrPreview" alt="预览">
-    <div class="ocr-status" id="ocrStatus"></div>
-    <div class="hint">识别在浏览器本地完成，图片不会上传到任何服务器。</div>
-
-    <h2 style="margin-top:22px;">2. 确认地址</h2>
+    <h2>1. 输入地址（从下到上）</h2>
     <div class="addr-list" id="addrList"></div>
     <div class="addr-tools">
       <button class="btn-secondary" onclick="window.addAddrRow()">＋ 添加地址</button>
@@ -81,7 +60,7 @@
   </div>
 
   <div class="card">
-    <h2>3. 地图服务设置（高德 Key）</h2>
+    <h2>2. 地图服务设置（高德 Key）</h2>
     <div class="key-box">
       <input type="text" id="amapKey" placeholder="粘贴高德 Web 服务 Key（没有可留空，仅无法定位到地图）">
       <button class="btn-secondary" onclick="window.saveKey()">保存</button>
@@ -94,7 +73,7 @@
   </div>
 
   <div class="card" id="mapCard">
-    <h2>4. 地图预览</h2>
+    <h2>3. 地图预览</h2>
     <div id="mapWrap"><div id="map"></div></div>
     <div class="actions" id="actionsBar">
       <button class="btn-primary" id="exportBtn" onclick="window.exportImage()">导出为图片（PNG）</button>
@@ -109,15 +88,9 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 (function(){
-  // 元素引用
-  var uploadBox = document.getElementById('uploadBox');
-  var fileInput = document.getElementById('fileInput');
-  var ocrPreview = document.getElementById('ocrPreview');
-  var ocrStatusEl = document.getElementById('ocrStatus');
   var addrList = document.getElementById('addrList');
   var amapKeyInput = document.getElementById('amapKey');
   var statusBox = document.getElementById('statusBox');
@@ -130,92 +103,6 @@
   var markers = [];
   var line = null;
 
-// ---------- OCR 地址提取（纯函数，可测试） ----------
-  function extractAddrsFromLines(lines) {
-    // OCR 常见误识纠正（在提取前对原文做替换）
-    function correctOcrText(raw) {
-      // 走→南、过→南（在路/街/道前方时，走/过是南的常见误识）
-      raw = raw.replace(/走(?=路|街|道)/g, '南');
-      raw = raw.replace(/过(?=路|街|道)/g, '南');
-      // 廿→路、璐→路（罕见但出现过）
-      raw = raw.replace(/滿(?=\d)/g, '路').replace(/璐(?=\d)/g, '路');
-      // 部分常见单字误识
-      raw = raw.replace(/諷/g, '讽').replace(/並/g, '并');
-      return raw;
-    }
-    function extractCandidates(raw) {
-      raw = correctOcrText(raw);
-      var cands = [], re, m;
-      // 站点名：2-4个汉字 + T + 数字（如 武胜T1）；先试 2 字，再试 3-4 字（噪声过滤交给 cleanAddr）
-      re = /[\u4e00-\u9fa5]{2}T\d+/g;
-      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: true, preLen: 2 });
-      re = /[\u4e00-\u9fa5]{3,4}T\d+/g;
-      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: true, preLen: m[0].length - 2 });
-      // 路地址：2-8个汉字 + 路/街/弄/巷/道/村 + 数字（可带 弄/巷/号/栋/幢 后缀）
-      re = /[\u4e00-\u9fa5]{2,8}(?:路|街|弄|巷|道|村)[\dA-Za-z]{1,8}(?:弄|巷|号|栋|幢)?/g;
-      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: false });
-      return cands;
-    }
-    function cleanAddr(c) {
-      var t = c.text;
-      if (c.site) {
-        var sm = t.match(/^([\u4e00-\u9fa5]{2,4})T(\d+)$/);
-        // 排除"弄武胜""路武胜"这类前面粘连的噪声，也排除夹杂街道字的伪站名
-        if (!sm || /[路街弄巷道村号]/.test(sm[1])) return null;
-        t = sm[1] + 'T' + sm[2];
-      } else {
-        t = t.replace(/^[^\u4e00-\u9fa5]+/, '').replace(/[^\u4e00-\u9fa5\dA-Za-z]+$/, '');
-        // 剥离 OCR 常见单字噪声前缀（真实观测：并/讽/普/过 等粘连字），最多剥 2 个，剥后仍需 ≥2 个汉字
-        t = t.replace(/^[并讽普过于入之云庄]/, '');
-        t = t.replace(/^[并讽普过于入之云庄]/, '');
-      }
-      if (/武隆|喉|局向|光纤|路由|资源|水印|庄毅|电信|中国/.test(t)) return null;
-      if (t.length < 3 || t.length > 30) return null;
-      if (!c.site && !/[路街弄巷道村]/.test(t)) return null;
-      return { text: t, site: c.site, preLen: c.site ? c.preLen : 0 };
-    }
-    // 路地址的"数字+后缀"签名，用于合并 OCR 误识别的同一地址（如"成都过路108弄"与"成都走路108弄"）
-    function roadKey(t) {
-      var m = t.match(/(\d{1,6}(?:弄|巷|号)?)$/);
-      return m ? m[1] : t;
-    }
-    var addrs = [], siteSeen = {};
-    for (var i = 0; i < lines.length; i++) {
-      var raw = (lines[i].text || '').replace(/\s+/g, '');
-      if (!raw) continue;
-      var cands = extractCandidates(raw);
-      for (var c = 0; c < cands.length; c++) {
-        var clean = cleanAddr(cands[c]);
-        if (!clean) continue;
-        var t = clean.text;
-        var dup = false;
-        if (clean.site) {
-          // 站点：优先保留 2 字前缀；3-4 字前缀若已有同 T 序号的 2 字版则视为噪声丢弃
-          var num = t.match(/T(\d+)$/)[1];
-          if (clean.preLen === 2) {
-            if (siteSeen[num] && siteSeen[num] !== t) dup = true;
-            else siteSeen[num] = t;
-          } else {
-            var has2 = false;
-            for (var k in siteSeen) {
-              if (k === num && siteSeen[k].indexOf('T') === siteSeen[k].length - 2) { has2 = true; break; }
-            }
-            if (has2) dup = true;
-            else if (!siteSeen[num]) siteSeen[num] = t;
-          }
-        } else {
-          for (var a = 0; a < addrs.length; a++) {
-            if (roadKey(addrs[a].text) === roadKey(t)) { dup = true; break; }
-          }
-        }
-        if (!dup) addrs.push({ text: t, y: lines[i].bbox ? lines[i].bbox.y0 : 0 });
-      }
-    }
-    // 从下到上（Z端在下 → A端在上）
-    addrs.sort(function (a, b) { return (b.y || 0) - (a.y || 0); });
-    return addrs;
-  }
-
   // ---------- 地址行管理 ----------
   function addrRowHtml(num, val) {
     return '<div class="addr-row">' +
@@ -224,7 +111,7 @@
       '</div>';
   }
   function arrowHtml() {
-    return '<div class="arrow">↓</div>';
+    return '<div class="arrow">\u2193</div>';
   }
   function renderAddrList(vals) {
     vals = vals || ['', '', ''];
@@ -258,7 +145,6 @@
     renderAddrList(vals);
   }
 
-  // 初始化 3 个空输入框
   renderAddrList(['', '', '']);
 
   // ---------- Key ----------
@@ -279,101 +165,6 @@
   }
   function hideStatus() { statusBox.style.display = 'none'; }
 
-  // ---------- 上传与 OCR ----------
-  uploadBox.addEventListener('click', function (e) {
-    if (e.target !== fileInput) fileInput.click();
-  });
-  uploadBox.addEventListener('dragover', function (e) { e.preventDefault(); uploadBox.style.borderColor = '#2f6fed'; });
-  uploadBox.addEventListener('dragleave', function () { uploadBox.style.borderColor = '#c9d4e5'; });
-  uploadBox.addEventListener('drop', function (e) {
-    e.preventDefault();
-    uploadBox.style.borderColor = '#c9d4e5';
-    var f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  });
-  fileInput.addEventListener('change', function () {
-    if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
-    fileInput.value = '';
-  });
-
-  function handleFile(file) {
-    if (!file.type.match(/^image\//)) { setStatus('请选择图片文件。', true); return; }
-    var reader = new FileReader();
-    reader.onload = function (ev) {
-      ocrPreview.src = ev.target.result;
-      ocrPreview.style.display = 'block';
-      runOCR(ev.target.result);
-    };
-    reader.readAsDataURL(file);
-  }
-
-function runOCR(dataUrl) {
-    ocrStatusEl.style.display = 'block';
-    ocrStatusEl.textContent = '正在识别图片文字…（首次需下载中文识别包，约 10-30 秒，请稍候）';
-
-    // 先用 canvas 放大 3 倍，显著提升小图识别率
-    var img = new Image();
-    img.onload = function () {
-      var canvas = document.createElement('canvas');
-      var scale = Math.max(1, 4 * 588 / img.naturalWidth, 4 * 388 / img.naturalHeight);
-      scale = Math.min(scale, 5);
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
-      var ctx = canvas.getContext('2d');
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      // 灰度+对比度增强，提升中文OCR识别率
-      try {
-        var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        var d = imgData.data;
-        var contrast = 1.5;
-        for (var i = 0; i < d.length; i += 4) {
-          var gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-          gray = (gray - 128) * contrast + 128;
-          gray = gray < 0 ? 0 : (gray > 255 ? 255 : gray);
-          d[i] = d[i+1] = d[i+2] = gray;
-        }
-        ctx.putImageData(imgData, 0, 0);
-      } catch(e) {}
-      var bigDataUrl = canvas.toDataURL('image/png');
-
-      Tesseract.createWorker('chi_sim', 1, {
-        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
-        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
-        langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_sim/4.0.0_best_int'
-      }).then(function (w) {
-        return w.recognize(bigDataUrl).then(function (res) {
-          var lines = (res && res.data && res.data.lines) || [];
-          var addrs = extractAddrsFromLines(lines);
-          // 最终去重：相同文本只保留第一个（跨行重复站名/地址）
-          var seen = {}, vals = [];
-          for (var j = 0; j < addrs.length && vals.length < 10; j++) {
-            var txt = addrs[j].text;
-            if (!seen[txt]) { seen[txt] = true; vals.push(txt); }
-          }
-          if (vals.length) {
-            setAddrValues(vals);
-            ocrStatusEl.textContent = '识别完成，已填入 ' + vals.length + ' 个地址（从下到上）。请核对顺序。';
-          } else {
-            ocrStatusEl.textContent = '未识别到明显地址文字，请手动输入。';
-          }
-          if (w && typeof w.terminate === 'function') {
-            w.terminate().catch(function () {});
-          }
-          return;
-        });
-      }).catch(function (err) {
-        ocrStatusEl.textContent = 'OCR 识别失败，可手动输入。';
-        setStatus('OCR 识别失败：' + (err && err.message ? err.message : err), true);
-      });
-    };
-    img.onerror = function () {
-      ocrStatusEl.textContent = '图片加载失败，请重试。';
-    };
-    img.src = dataUrl;
-  }
-
   // ---------- 地图 ----------
   function initMap() {
     if (map) return;
@@ -385,7 +176,6 @@ function runOCR(dataUrl) {
       crossOrigin: true
     }).addTo(map);
     map.setView([31.2, 121.5], 10);
-    // 暴露到 window 便于调试
     window._map = map;
   }
 
@@ -434,7 +224,7 @@ function runOCR(dataUrl) {
     hideStatus();
 
     var vals = getAddrValues().filter(Boolean);
-    if (!vals.length) { setStatus('请先输入或识别地址。', true); return; }
+    if (!vals.length) { setStatus('请先输入地址。', true); return; }
     var key = (amapKeyInput.value || savedKey || '').trim();
     if (!key) { setStatus('未配置高德 Key，地图无法定位。请在上方填入 Key 后重试。', true); return; }
 
@@ -460,13 +250,11 @@ function runOCR(dataUrl) {
       actionsBar.style.display = 'flex';
 
       // mapCard 从 display:none 变为 block 后，Leaflet 需要重新计算尺寸
-      // 用 requestAnimationFrame + setTimeout 双重保证 DOM 已渲染
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
           map.invalidateSize();
           var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
           map.fitBounds(group.getBounds(), { padding: [40, 40] });
-          // 再延迟一次确保缩放后瓦片正确加载
           setTimeout(function () { map.invalidateSize(); }, 200);
         });
       });
