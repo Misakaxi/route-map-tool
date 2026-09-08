@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>线路地图生成器</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #222; min-height: 100vh; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { text-align: center; padding: 28px 0 6px; }
+  header h1 { font-size: 26px; letter-spacing: 1px; }
+  header p { color: #888; margin-top: 8px; font-size: 14px; }
+  .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06); padding: 20px; margin-top: 20px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; }
+  .hint { color: #999; font-size: 12px; margin-top: 6px; line-height: 1.7; }
+
+  .upload-box { border: 2px dashed #c9d4e5; border-radius: 10px; padding: 22px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
+  .upload-box:hover { border-color: #2f6fed; background: #f7faff; }
+  .upload-box .icon { font-size: 30px; }
+  .upload-box p { color: #666; font-size: 13px; margin-top: 6px; }
+  .upload-box input[type=file] { display: none; }
+  #ocrPreview { display: none; max-width: 260px; max-height: 180px; margin: 12px auto 0; border-radius: 8px; border: 1px solid #e3e6eb; }
+  .ocr-status { display: none; margin-top: 10px; font-size: 13px; color: #2e7d32; text-align: center; }
+
+  .addr-list { margin-top: 14px; }
+  .addr-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .addr-row .order { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; background: #2f6fed; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; }
+  .addr-row input { flex: 1; border: 1px solid #d9dce1; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; }
+  .addr-row input:focus { outline: none; border-color: #4a90d9; }
+  .arrow { text-align: center; color: #2f6fed; font-size: 16px; font-weight: bold; margin: 2px 0; line-height: 1; }
+  .addr-tools { display: flex; gap: 10px; margin-top: 12px; }
+
+  button { border: none; border-radius: 8px; padding: 10px 16px; font-size: 14px; cursor: pointer; }
+  .btn-primary { background: #2f6fed; color: #fff; }
+  .btn-primary:hover { background: #265ec9; }
+  .btn-secondary { background: #eef1f5; color: #333; }
+  .btn-secondary:hover { background: #e2e6ec; }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+  .key-box { display: flex; gap: 8px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+  .key-box input { flex: 1; min-width: 220px; border: 1px solid #d9dce1; border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  .key-tip { font-size: 12px; color: #999; margin-top: 6px; line-height: 1.7; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+
+  .status { display: none; margin-top: 12px; font-size: 13px; border-radius: 8px; padding: 10px 12px; line-height: 1.6; }
+  #mapCard { display: none; }
+  #mapWrap { position: relative; margin-top: 14px; border-radius: 10px; overflow: hidden; border: 1px solid #e3e6eb; background: #eef1f4; }
+  #map { width: 100%; height: 440px; }
+  .actions { margin-top: 12px; display: none; gap: 10px; }
+  .note { background: #f0f7ff; border-left: 3px solid #2f6fed; border-radius: 0 8px 8px 0; padding: 10px 12px; margin-top: 24px; font-size: 13px; color: #444; line-height: 1.7; }
+  .note b { color: #1f4e9c; }
+  footer { text-align: center; color: #bbb; font-size: 12px; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>线路地图生成器</h1>
+    <p>上传路由图自动识别地址，按顺序标点连线，一键导出图片</p>
+  </header>
+
+  <div class="card">
+    <h2>1. 上传路由图（自动识别地址）</h2>
+    <div class="upload-box" id="uploadBox">
+      <div class="icon">📷</div>
+      <p>点击上传图片，或拖拽图片到此处<br><span style="color:#aaa;font-size:12px">支持 png / jpg，识别后自动填入下方地址栏</span></p>
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+    <img id="ocrPreview" alt="预览">
+    <div class="ocr-status" id="ocrStatus"></div>
+    <div class="hint">识别在浏览器本地完成，图片不会上传到任何服务器。</div>
+
+    <h2 style="margin-top:22px;">2. 确认地址顺序（从下到上）</h2>
+    <div class="addr-list" id="addrList"></div>
+    <div class="addr-tools">
+      <button class="btn-secondary" onclick="window.addAddrRow()">＋ 添加地址</button>
+      <button class="btn-secondary" onclick="window.removeLastAddrRow()">－ 删除最后一个</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. 地图服务设置（高德 Key）</h2>
+    <div class="key-box">
+      <input type="text" id="amapKey" placeholder="粘贴高德 Web 服务 Key（没有可留空，仅无法定位到地图）">
+      <button class="btn-secondary" onclick="window.saveKey()">保存</button>
+    </div>
+    <div class="key-tip">免费申请：高德开放平台 → 控制台 → 应用管理 → 创建应用 → 添加 Key（Web服务）。保存后存在本机浏览器，不会上传。</div>
+    <div class="status" id="statusBox"></div>
+    <div class="row">
+      <button class="btn-primary" id="genBtn" onclick="window.generate()">生成地图</button>
+    </div>
+  </div>
+
+  <div class="card" id="mapCard">
+    <h2>4. 地图预览</h2>
+    <div id="mapWrap"><div id="map"></div></div>
+    <div class="actions" id="actionsBar">
+      <button class="btn-primary" id="exportBtn" onclick="window.exportImage()">导出为图片（PNG）</button>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>说明：</b>底图使用高德地图公开瓦片（免 key）；地址→坐标定位需要高德 Web 服务 Key（免费申请）。未填 Key 时地图仅显示底图。导出图片在浏览器本地生成。
+  </div>
+
+  <footer>线路地图生成器 · 免费在线工具</footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script>
+(function(){
+  // 元素引用
+  var uploadBox = document.getElementById('uploadBox');
+  var fileInput = document.getElementById('fileInput');
+  var ocrPreview = document.getElementById('ocrPreview');
+  var ocrStatusEl = document.getElementById('ocrStatus');
+  var addrList = document.getElementById('addrList');
+  var amapKeyInput = document.getElementById('amapKey');
+  var statusBox = document.getElementById('statusBox');
+  var mapCard = document.getElementById('mapCard');
+  var actionsBar = document.getElementById('actionsBar');
+  var genBtn = document.getElementById('genBtn');
+  var exportBtn = document.getElementById('exportBtn');
+
+  var map = null;
+  var markers = [];
+  var line = null;
+
+// ---------- OCR 地址提取（纯函数，可测试） ----------
+  function extractAddrsFromLines(lines) {
+    function extractCandidates(raw) {
+      var cands = [], re, m;
+      // 站点名：2-4个汉字 + T + 数字（如 武胜T1）；先试 2 字，再试 3-4 字（噪声过滤交给 cleanAddr）
+      re = /[\u4e00-\u9fa5]{2}T\d+/g;
+      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: true, preLen: 2 });
+      re = /[\u4e00-\u9fa5]{3,4}T\d+/g;
+      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: true, preLen: m[0].length - 2 });
+      // 路地址：2-8个汉字 + 路/街/弄/巷/道/村 + 数字（可带 弄/巷/号/栋/幢 后缀）
+      re = /[\u4e00-\u9fa5]{2,8}(?:路|街|弄|巷|道|村)[\dA-Za-z]{1,8}(?:弄|巷|号|栋|幢)?/g;
+      while ((m = re.exec(raw)) !== null) cands.push({ text: m[0], site: false });
+      return cands;
+    }
+    function cleanAddr(c) {
+      var t = c.text;
+      if (c.site) {
+        var sm = t.match(/^([\u4e00-\u9fa5]{2,4})T(\d+)$/);
+        // 排除"弄武胜""路武胜"这类前面粘连的噪声，也排除夹杂街道字的伪站名
+        if (!sm || /[路街弄巷道村号]/.test(sm[1])) return null;
+        t = sm[1] + 'T' + sm[2];
+      } else {
+        t = t.replace(/^[^\u4e00-\u9fa5]+/, '').replace(/[^\u4e00-\u9fa5\dA-Za-z]+$/, '');
+        // 剥离 OCR 常见单字噪声前缀（真实观测：并/讽/普/过 等粘连字），最多剥 2 个，剥后仍需 ≥2 个汉字
+        t = t.replace(/^[并讽普过于入之云庄]/, '');
+        t = t.replace(/^[并讽普过于入之云庄]/, '');
+      }
+      if (/武隆|喉|局向|光纤|路由|资源|水印|庄毅|电信|中国/.test(t)) return null;
+      if (t.length < 3 || t.length > 30) return null;
+      if (!c.site && !/[路街弄巷道村]/.test(t)) return null;
+      return { text: t, site: c.site, preLen: c.site ? c.preLen : 0 };
+    }
+    // 路地址的"数字+后缀"签名，用于合并 OCR 误识别的同一地址（如"成都过路108弄"与"成都走路108弄"）
+    function roadKey(t) {
+      var m = t.match(/(\d{1,6}(?:弄|巷|号)?)$/);
+      return m ? m[1] : t;
+    }
+    var addrs = [], siteSeen = {};
+    for (var i = 0; i < lines.length; i++) {
+      var raw = (lines[i].text || '').replace(/\s+/g, '');
+      if (!raw) continue;
+      var cands = extractCandidates(raw);
+      for (var c = 0; c < cands.length; c++) {
+        var clean = cleanAddr(cands[c]);
+        if (!clean) continue;
+        var t = clean.text;
+        var dup = false;
+        if (clean.site) {
+          // 站点：优先保留 2 字前缀；3-4 字前缀若已有同 T 序号的 2 字版则视为噪声丢弃
+          var num = t.match(/T(\d+)$/)[1];
+          if (clean.preLen === 2) {
+            if (siteSeen[num] && siteSeen[num] !== t) dup = true;
+            else siteSeen[num] = t;
+          } else {
+            var has2 = false;
+            for (var k in siteSeen) {
+              if (k === num && siteSeen[k].indexOf('T') === siteSeen[k].length - 2) { has2 = true; break; }
+            }
+            if (has2) dup = true;
+            else if (!siteSeen[num]) siteSeen[num] = t;
+          }
+        } else {
+          for (var a = 0; a < addrs.length; a++) {
+            if (roadKey(addrs[a].text) === roadKey(t)) { dup = true; break; }
+          }
+        }
+        if (!dup) addrs.push({ text: t, y: lines[i].bbox ? lines[i].bbox.y0 : 0 });
+      }
+    }
+    // 从下到上（Z端在下 → A端在上）
+    addrs.sort(function (a, b) { return (b.y || 0) - (a.y || 0); });
+    return addrs;
+  }
+
+  // ---------- 地址行管理 ----------
+  function addrRowHtml(num, val) {
+    return '<div class="addr-row">' +
+      '<div class="order">' + num + '</div>' +
+      '<input type="text" class="addr-input" value="' + (val || '') + '" placeholder="输入地址 ' + num + '">' +
+      '</div>';
+  }
+  function arrowHtml() {
+    return '<div class="arrow">↓</div>';
+  }
+  function renderAddrList(vals) {
+    vals = vals || ['', '', ''];
+    var html = '';
+    for (var i = 0; i < vals.length; i++) {
+      html += addrRowHtml(i + 1, vals[i]);
+      if (i < vals.length - 1) html += arrowHtml();
+    }
+    addrList.innerHTML = html;
+  }
+  function getAddrValues() {
+    var inputs = addrList.querySelectorAll('.addr-input');
+    var arr = [];
+    for (var i = 0; i < inputs.length; i++) arr.push(inputs[i].value.trim());
+    return arr;
+  }
+  function addAddrRow() {
+    var vals = getAddrValues();
+    if (vals.length >= 20) return;
+    vals.push('');
+    renderAddrList(vals);
+  }
+  function removeLastAddrRow() {
+    var vals = getAddrValues();
+    if (vals.length <= 1) return;
+    vals.pop();
+    renderAddrList(vals);
+  }
+  function setAddrValues(vals) {
+    if (!vals || !vals.length) return;
+    renderAddrList(vals);
+  }
+
+  // 初始化 3 个空输入框
+  renderAddrList(['', '', '']);
+
+  // ---------- Key ----------
+  var savedKey = localStorage.getItem('amap_key') || '';
+  if (savedKey) amapKeyInput.value = savedKey;
+
+  function saveKey() {
+    var k = amapKeyInput.value.trim();
+    if (k) { localStorage.setItem('amap_key', k); setStatus('Key 已保存到本机浏览器。', false); }
+    else { localStorage.removeItem('amap_key'); setStatus('已清除 Key。', false); }
+  }
+
+  function setStatus(msg, isErr) {
+    statusBox.textContent = msg;
+    statusBox.style.display = 'block';
+    statusBox.style.color = isErr ? '#d23' : '#2e7d32';
+    statusBox.style.background = isErr ? '#fdecea' : '#eaf6ee';
+  }
+  function hideStatus() { statusBox.style.display = 'none'; }
+
+  // ---------- 上传与 OCR ----------
+  uploadBox.addEventListener('click', function (e) {
+    if (e.target !== fileInput) fileInput.click();
+  });
+  uploadBox.addEventListener('dragover', function (e) { e.preventDefault(); uploadBox.style.borderColor = '#2f6fed'; });
+  uploadBox.addEventListener('dragleave', function () { uploadBox.style.borderColor = '#c9d4e5'; });
+  uploadBox.addEventListener('drop', function (e) {
+    e.preventDefault();
+    uploadBox.style.borderColor = '#c9d4e5';
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+    fileInput.value = '';
+  });
+
+  function handleFile(file) {
+    if (!file.type.match(/^image\//)) { setStatus('请选择图片文件。', true); return; }
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      ocrPreview.src = ev.target.result;
+      ocrPreview.style.display = 'block';
+      runOCR(ev.target.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+function runOCR(dataUrl) {
+    ocrStatusEl.style.display = 'block';
+    ocrStatusEl.textContent = '正在识别图片文字…（首次需下载中文识别包，约 10-30 秒，请稍候）';
+
+    // 先用 canvas 放大 3 倍，显著提升小图识别率
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement('canvas');
+      var scale = Math.max(1, 3 * 588 / img.naturalWidth, 3 * 388 / img.naturalHeight);
+      scale = Math.min(scale, 4);
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      var bigDataUrl = canvas.toDataURL('image/png');
+
+      Tesseract.createWorker('chi_sim', 1, {
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+        langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_sim/4.0.0_best_int'
+      }).then(function (w) {
+        return w.recognize(bigDataUrl).then(function (res) {
+          var lines = (res && res.data && res.data.lines) || [];
+          var addrs = extractAddrsFromLines(lines);
+          // 最终去重：相同文本只保留第一个（跨行重复站名/地址）
+          var seen = {}, vals = [];
+          for (var j = 0; j < addrs.length && vals.length < 10; j++) {
+            var txt = addrs[j].text;
+            if (!seen[txt]) { seen[txt] = true; vals.push(txt); }
+          }
+          if (vals.length) {
+            setAddrValues(vals);
+            ocrStatusEl.textContent = '识别完成，已填入 ' + vals.length + ' 个地址（从下到上）。请核对顺序。';
+          } else {
+            ocrStatusEl.textContent = '未识别到明显地址文字，请手动输入。';
+          }
+          if (w && typeof w.terminate === 'function') {
+            w.terminate().catch(function () {});
+          }
+          return;
+        });
+      }).catch(function (err) {
+        ocrStatusEl.textContent = 'OCR 识别失败，可手动输入。';
+        setStatus('OCR 识别失败：' + (err && err.message ? err.message : err), true);
+      });
+    };
+    img.onerror = function () {
+      ocrStatusEl.textContent = '图片加载失败，请重试。';
+    };
+    img.src = dataUrl;
+  }
+
+  // ---------- 地图 ----------
+  function initMap() {
+    if (map) return;
+    map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      subdomains: ['1', '2', '3', '4'],
+      maxZoom: 18,
+      attribution: '&copy; 高德地图'
+    }).addTo(map);
+    map.setView([31.2, 121.5], 10);
+    // 暴露到 window 便于调试
+    window._map = map;
+  }
+
+  function clearLayers() {
+    for (var i = 0; i < markers.length; i++) map.removeLayer(markers[i]);
+    markers = [];
+    if (line) { map.removeLayer(line); line = null; }
+  }
+
+  function addMarker(lat, lng, label) {
+    var icon = L.divIcon({
+      className: '',
+      html: '<div style="background:#e03a3a;border:2px solid #fff;border-radius:50%;width:14px;height:14px;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+    var m = L.marker([lat, lng], { icon: icon });
+    if (label) m.bindPopup('<b>' + escapeHtml(label) + '</b>');
+    m.addTo(map);
+    markers.push(m);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ---------- 地理编码（高德） ----------
+  function geocodeAddr(addr, key) {
+    return new Promise(function (resolve, reject) {
+      var url = 'https://restapi.amap.com/v3/geocode/geo?address=' + encodeURIComponent(addr) + '&key=' + encodeURIComponent(key);
+      fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+        if (data && data.status === '1' && data.geocodes && data.geocodes.length) {
+          var loc = data.geocodes[0].location.split(',');
+          resolve({ lat: parseFloat(loc[1]), lng: parseFloat(loc[0]), addr: addr });
+        } else {
+          reject(new Error('未找到：' + addr));
+        }
+      }).catch(reject);
+    });
+  }
+
+  // ---------- 生成 ----------
+  function generate() {
+    if (!map) initMap();
+    clearLayers();
+    hideStatus();
+
+    var vals = getAddrValues().filter(Boolean);
+    if (!vals.length) { setStatus('请先输入或识别地址。', true); return; }
+    var key = (amapKeyInput.value || savedKey || '').trim();
+    if (!key) { setStatus('未配置高德 Key，地图无法定位。请在上方填入 Key 后重试。', true); return; }
+
+    genBtn.disabled = true;
+    setStatus('正在定位 ' + vals.length + ' 个地址…', false);
+
+    var tasks = vals.map(function (v) {
+      return geocodeAddr(v, key).catch(function () { return null; });
+    });
+
+    Promise.all(tasks).then(function (results) {
+      genBtn.disabled = false;
+      var ok = [];
+      for (var i = 0; i < results.length; i++) if (results[i]) ok.push(results[i]);
+      if (!ok.length) { setStatus('所有地址都未能定位，请检查 Key 或地址。', true); return; }
+
+      for (var j = 0; j < ok.length; j++) addMarker(ok[j].lat, ok[j].lng, ok[j].addr);
+      if (ok.length > 1) {
+        line = L.polyline(ok.map(function (r) { return [r.lat, r.lng]; }), { color: '#e8590c', weight: 3, opacity: .85 });
+        line.addTo(map);
+      }
+      mapCard.style.display = 'block';
+      actionsBar.style.display = 'flex';
+
+      var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
+      map.fitBounds(group.getBounds(), { padding: [40, 40] });
+
+      var failed = vals.length - ok.length;
+      setStatus('成功定位 ' + ok.length + ' / ' + vals.length + ' 个地址。' + (failed ? ' ' + failed + ' 个未找到。' : ''), false);
+    });
+  }
+
+  // ---------- 导出 ----------
+  function exportImage() {
+    if (!map || !markers.length) return;
+    setStatus('正在生成图片…', false);
+    exportBtn.disabled = true;
+    html2canvas(document.getElementById('mapWrap'), {
+      useCORS: true,
+      backgroundColor: '#eef1f4',
+      scale: 2,
+      logging: false
+    }).then(function (canvas) {
+      exportBtn.disabled = false;
+      var a = document.createElement('a');
+      a.download = 'route-map.png';
+      canvas.toBlob(function (blob) {
+        a.href = URL.createObjectURL(blob);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+        setStatus('图片已导出，请查看浏览器下载文件。', false);
+      }, 'image/png');
+    }).catch(function (err) {
+      exportBtn.disabled = false;
+      setStatus('图片生成失败：' + (err && err.message ? err.message : ''), true);
+    });
+  }
+
+  window.addAddrRow = addAddrRow;
+  window.removeLastAddrRow = removeLastAddrRow;
+  window.saveKey = saveKey;
+  window.generate = generate;
+  window.exportImage = exportImage;
+})();
+</script>
+</body>
+</html>
