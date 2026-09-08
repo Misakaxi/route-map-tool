@@ -211,18 +211,33 @@
     return fetch(url).then(function (r) { return r.json(); });
   }
 
+  // 从高德返回结果中筛选上海市黄浦区的条目
+  function pickShanghai(results) {
+    if (!results || !results.length) return null;
+    for (var i = 0; i < results.length; i++) {
+      var g = results[i];
+      if (g.district === '黄浦区' && g.city === '上海市') return g;
+    }
+    for (var i = 0; i < results.length; i++) {
+      var g = results[i];
+      if (g.city === '上海市') return g;
+    }
+    return null;
+  }
+
   function geocodeAddr(addr, key) {
     return new Promise(function (resolve, reject) {
       // 1) 先限黄浦区
       geocodeReq(addr, key, '黄浦区').then(function (data) {
-        if (data && data.status === '1' && data.geocodes && data.geocodes.length) {
-          return data;
-        }
+        var hit = (data && data.status === '1') ? pickShanghai(data.geocodes) : null;
+        if (hit) return hit;
         // 2) 再退一步搜全上海市
-        return geocodeReq(addr, key, '上海');
-      }).then(function (data) {
-        if (data && data.status === '1' && data.geocodes && data.geocodes.length) {
-          var loc = data.geocodes[0].location.split(',');
+        return geocodeReq(addr, key, '上海').then(function (data2) {
+          return (data2 && data2.status === '1') ? pickShanghai(data2.geocodes) : null;
+        });
+      }).then(function (hit) {
+        if (hit) {
+          var loc = hit.location.split(',');
           resolve({ lat: parseFloat(loc[1]), lng: parseFloat(loc[0]), addr: addr });
         } else {
           reject(new Error('未找到：' + addr));
