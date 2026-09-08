@@ -204,11 +204,23 @@
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // ---------- 地理编码（高德） ----------
+  // ---------- 地理编码（高德，限制黄浦区→上海市） ----------
+  function geocodeReq(addr, key, city) {
+    var url = 'https://restapi.amap.com/v3/geocode/geo?address=' + encodeURIComponent(addr) + '&key=' + encodeURIComponent(key);
+    if (city) url += '&city=' + encodeURIComponent(city);
+    return fetch(url).then(function (r) { return r.json(); });
+  }
+
   function geocodeAddr(addr, key) {
     return new Promise(function (resolve, reject) {
-      var url = 'https://restapi.amap.com/v3/geocode/geo?address=' + encodeURIComponent(addr) + '&key=' + encodeURIComponent(key);
-      fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+      // 1) 先限黄浦区
+      geocodeReq(addr, key, '黄浦区').then(function (data) {
+        if (data && data.status === '1' && data.geocodes && data.geocodes.length) {
+          return data;
+        }
+        // 2) 再退一步搜全上海市
+        return geocodeReq(addr, key, '上海');
+      }).then(function (data) {
         if (data && data.status === '1' && data.geocodes && data.geocodes.length) {
           var loc = data.geocodes[0].location.split(',');
           resolve({ lat: parseFloat(loc[1]), lng: parseFloat(loc[0]), addr: addr });
