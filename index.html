@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>上传路由图自动识别地址，按顺序标点连线，一键导出图片</title>
+<title>地址标点连线工具</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -48,9 +48,7 @@
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1>上传路由图自动识别地址，按顺序标点连线，一键导出图片</h1>
-  </header>
+  <header></header>
 
   <div class="card">
     <h2>1. 输入地址（从下到上）</h2>
@@ -77,29 +75,22 @@
   <div class="card" id="mapCard">
     <h2>3. 地图预览</h2>
     <div id="mapWrap"><div id="map"></div></div>
-    <div class="actions" id="actionsBar">
-      <button class="btn-primary" id="exportBtn" onclick="window.exportImage()">导出为图片（PNG）</button>
-    </div>
   </div>
 
   <div class="note">
-    <b>说明：</b>底图使用高德地图公开瓦片（免 key）；地址→坐标定位需要高德 Web 服务 Key（免费申请）。未填 Key 时地图仅显示底图。导出图片在浏览器本地生成。
+    <b>说明：</b>底图使用高德地图公开瓦片（免 key）；地址→坐标定位需要高德 Web 服务 Key（免费申请）。未填 Key 时地图仅显示底图。
   </div>
 
-  <footer>上传路由图自动识别地址，按顺序标点连线，一键导出图片</footer>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
 (function(){
   var addrList = document.getElementById('addrList');
   var amapKeyInput = document.getElementById('amapKey');
   var statusBox = document.getElementById('statusBox');
   var mapCard = document.getElementById('mapCard');
-  var actionsBar = document.getElementById('actionsBar');
   var genBtn = document.getElementById('genBtn');
-  var exportBtn = document.getElementById('exportBtn');
 
   var map = null;
   var markers = [];
@@ -332,7 +323,6 @@
         }
 
         mapCard.style.display = 'block';
-        actionsBar.style.display = 'flex';
 
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
@@ -350,37 +340,10 @@
     });
   }
 
-  // ---------- 导出 ----------
-  function exportImage() {
-    if (!map || !markers.length) return;
-    setStatus('正在生成图片…', false);
-    exportBtn.disabled = true;
-    html2canvas(document.getElementById('mapWrap'), {
-      useCORS: true,
-      backgroundColor: '#eef1f4',
-      scale: 2,
-      logging: false
-    }).then(function (canvas) {
-      exportBtn.disabled = false;
-      var a = document.createElement('a');
-      a.download = 'route-map.png';
-      canvas.toBlob(function (blob) {
-        a.href = URL.createObjectURL(blob);
-        a.click();
-        setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
-        setStatus('图片已导出，请查看浏览器下载文件。', false);
-      }, 'image/png');
-    }).catch(function (err) {
-      exportBtn.disabled = false;
-      setStatus('图片生成失败：' + (err && err.message ? err.message : ''), true);
-    });
-  }
-
   window.addAddrRow = addAddrRow;
   window.removeLastAddrRow = removeLastAddrRow;
   window.saveKey = saveKey;
   window.generate = generate;
-  window.exportImage = exportImage;
 })();
 </script>
 </body>
