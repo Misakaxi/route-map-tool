@@ -246,6 +246,33 @@
     });
   }
 
+// ---------- 路径规划（高德驾车，返回沿路折线坐标） ----------
+  // 优先走主干道策略：用 strategy=0（速度优先）可偏向快速路/主干道
+  function planRoute(from, to, key) {
+    var url = 'https://restapi.amap.com/v3/direction/driving?origin=' + from.lng + ',' + from.lat +
+      '&destination=' + to.lng + ',' + to.lat +
+      '&extensions=all&strategy=0&key=' + encodeURIComponent(key);
+    return fetch(url).then(function (r) { return r.json(); }).then(function (data) {
+      if (data && data.status === '1' && data.route && data.route.paths && data.route.paths.length) {
+        var path = data.route.paths[0];
+        // 取所有路段 polyline 拼成完整折线
+        var steps = path.steps || [];
+        var pts = [];
+        for (var i = 0; i < steps.length; i++) {
+          var poly = steps[i].polyline;
+          if (!poly) continue;
+          var segs = poly.split(';');
+          for (var j = 0; j < segs.length; j++) {
+            var c = segs[j].split(',');
+            if (c.length === 2) pts.push([parseFloat(c[1]), parseFloat(c[0])]);
+          }
+        }
+        if (pts.length >= 2) return pts;
+      }
+      return null;
+    });
+  }
+
   // ---------- 生成 ----------
   function generate() {
     if (!map) initMap();
@@ -265,31 +292,61 @@
     });
 
     Promise.all(tasks).then(function (results) {
-      genBtn.disabled = false;
       var ok = [];
       for (var i = 0; i < results.length; i++) if (results[i]) ok.push(results[i]);
-      if (!ok.length) { setStatus('所有地址都未能定位，请检查 Key 或地址。', true); return; }
+      if (!ok.length) { genBtn.disabled = false; setStatus('所有地址都未能定位，请检查 Key 或地址。', true); return; }
 
       for (var j = 0; j < ok.length; j++) addMarker(ok[j].lat, ok[j].lng, ok[j].addr);
-      if (ok.length > 1) {
-        line = L.polyline(ok.map(function (r) { return [r.lat, r.lng]; }), { color: '#e8590c', weight: 3, opacity: .85 });
-        line.addTo(map);
-      }
-      mapCard.style.display = 'block';
-      actionsBar.style.display = 'flex';
 
-      // mapCard 从 display:none 变为 block 后，Leaflet 需要重新计算尺寸
-      requestAnimationFrame(function () {
+      var drawRoute = function () {
+        // 相邻点之间按顺序请求路径规划
+        var segs = [];
+        for (var k = 0; k < ok.length - 1; k++) {
+          segs.push(planRoute(ok[k], ok[k + 1], key));
+        }
+        return Promise.all(segs);
+      };
+
+      drawRoute().then(function (segResults) {
+        genBtn.disabled = false;
+        var allPts = [];
+        var usedRoute = false;
+        for (var s = 0; s < segResults.length; s++) {
+          var pts = segResults[s];
+          if (pts && pts.length >= 2) {
+            // 合并折线：去掉上一点的重复
+            if (allPts.length) pts = pts.slice(1);
+            allPts = allPts.concat(pts);
+            usedRoute = true;
+          } else {
+            // 规划失败降级为直线
+            var a = ok[s], b = ok[s + 1];
+            var straight = [[a.lat, a.lng], [b.lat, b.lng]];
+            if (allPts.length) straight = straight.slice(1);
+            allPts = allPts.concat(straight);
+          }
+        }
+        if (allPts.length > 1) {
+          line = L.polyline(allPts, { color: '#2e9e44', weight: 5, opacity: .9 });
+          line.addTo(map);
+        }
+
+        mapCard.style.display = 'block';
+        actionsBar.style.display = 'flex';
+
         requestAnimationFrame(function () {
-          map.invalidateSize();
-          var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
-          map.fitBounds(group.getBounds(), { padding: [40, 40] });
-          setTimeout(function () { map.invalidateSize(); }, 200);
+          requestAnimationFrame(function () {
+            map.invalidateSize();
+            var group = L.featureGroup(ok.map(function (r) { return L.marker([r.lat, r.lng]); }));
+            map.fitBounds(group.getBounds(), { padding: [40, 40] });
+            setTimeout(function () { map.invalidateSize(); }, 200);
+          });
         });
-      });
 
-      var failed = vals.length - ok.length;
-      setStatus('成功定位 ' + ok.length + ' / ' + vals.length + ' 个地址。' + (failed ? ' ' + failed + ' 个未找到。' : ''), false);
+        var failed = vals.length - ok.length;
+        setStatus('成功定位 ' + ok.length + ' / ' + vals.length + ' 个地址。' + (failed ? ' ' + failed + ' 个未找到。' : '') +
+          (usedRoute ? ' 连线已按道路规划（优先主干道）。' : ' 路径规划不可用，已用直线连接。'), false);
+      });
     });
   }
 
